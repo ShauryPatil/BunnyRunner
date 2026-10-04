@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Bunny Runner</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#1a1a2e;
+    font-family:'Segoe UI', system-ui, sans-serif; touch-action:none; overscroll-behavior:none; }
+  #game { position:fixed; inset:0; }
+  canvas { display:block; }
+
+  .hud { position:fixed; inset:0; pointer-events:none; z-index:10; }
+  #score {
+    position:absolute; top:calc(14px + env(safe-area-inset-top)); left:50%;
+    transform:translateX(-50%); text-align:center; color:#fff;
+    text-shadow:0 2px 6px rgba(0,0,0,.5);
+  }
+  #score .dist { font-size:34px; font-weight:800; letter-spacing:1px; }
+  #score .label { font-size:12px; font-weight:600; opacity:.8; letter-spacing:3px; text-transform:uppercase; }
+  #carrots {
+    position:absolute; top:calc(16px + env(safe-area-inset-top)); right:calc(18px + env(safe-area-inset-right));
+    display:flex; align-items:center; gap:8px; color:#fff;
+    background:rgba(0,0,0,.28); padding:8px 14px; border-radius:20px;
+    font-size:20px; font-weight:800; backdrop-filter:blur(4px);
+  }
+  #carrots .ico { font-size:22px; }
+
+  .center-card {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center;
+    background:radial-gradient(circle at 50% 40%, rgba(26,26,46,.55), rgba(10,10,25,.85));
+    color:#fff; pointer-events:auto; padding:24px;
+  }
+  .hidden { display:none !important; }
+  .title { font-size:44px; font-weight:900; letter-spacing:1px;
+    background:linear-gradient(90deg,#ffd54a,#ff8a3d,#ff5e7e);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+    margin-bottom:6px; }
+  .sub { font-size:15px; opacity:.85; margin-bottom:26px; max-width:280px; line-height:1.5; }
+  .btn {
+    pointer-events:auto; border:none; outline:none; cursor:pointer;
+    font-size:20px; font-weight:800; letter-spacing:1px; color:#fff;
+    padding:16px 46px; border-radius:34px;
+    background:linear-gradient(135deg,#4ecdc4,#2a9d8f);
+    box-shadow:0 8px 24px rgba(42,157,143,.5), inset 0 2px 0 rgba(255,255,255,.3);
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .btn:active { transform:scale(.95); box-shadow:0 4px 14px rgba(42,157,143,.5); }
+  .btn.secondary { background:linear-gradient(135deg,#6c757d,#495057); box-shadow:0 6px 18px rgba(0,0,0,.4); }
+  .best { margin-top:22px; font-size:14px; opacity:.8; letter-spacing:1px; }
+  .best b { color:#ffd54a; }
+
+  #gameover .title { font-size:40px; }
+  #gameover .final { font-size:52px; font-weight:900; margin:8px 0 4px; }
+  #gameover .final .label { font-size:13px; font-weight:700; letter-spacing:3px; opacity:.7; display:block; text-transform:uppercase; }
+  .newbest { color:#ffd54a; font-weight:800; font-size:14px; letter-spacing:2px; margin-bottom:6px; }
+
+  .hint { position:fixed; bottom:calc(24px + env(safe-area-inset-bottom)); left:50%;
+    transform:translateX(-50%); color:#fff; font-size:13px; opacity:.7;
+    text-align:center; z-index:11; pointer-events:none; letter-spacing:.5px; line-height:1.7; }
+  .hint kbd { display:inline-block; background:rgba(255,255,255,.15); border-radius:6px;
+    padding:2px 8px; margin:0 2px; font-weight:700; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div class="hud">
+  <div id="score" class="hidden">
+    <div class="dist"><span id="dist">0</span> m</div>
+    <div class="label">Distance</div>
+  </div>
+  <div id="carrots" class="hidden"><span class="ico">🥕</span><span id="carrotCount">0</span></div>
+
+  <!-- Start screen -->
+  <div id="start" class="center-card">
+    <div class="title">Bunny Runner</div>
+    <div class="sub">Dart through the meadow, hop over fences, and grab every carrot you can. Keep up the pace!</div>
+    <button id="play" class="btn">▶ &nbsp;PLAY</button>
+    <div class="best">Best distance: <b id="bestStart">0</b> m</div>
+  </div>
+
+  <!-- Game over screen -->
+  <div id="gameover" class="center-card hidden">
+    <div class="title">Oh no, bumped!</div>
+    <div class="newbest hidden" id="newbest">★ NEW BEST ★</div>
+    <div class="final"><span class="label">Distance</span><span id="final">0</span> m</div>
+    <div style="font-size:18px; margin-bottom:24px;">🥕 <span id="finalCarrots">0</span> carrots</div>
+    <div style="display:flex; gap:14px;">
+      <button id="retry" class="btn">RUN AGAIN</button>
+    </div>
+  </div>
+
+  <div id="hint" class="hint hidden">
+    <kbd>◀</kbd><kbd>▶</kbd> lane &nbsp; <kbd>▲</kbd> jump &nbsp; <kbd>▼</kbd> roll<br>
+    <span style="opacity:.8">(swipe or use arrow keys)</span>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+// ---------- Config ----------
+const LANES = [-2.2, 0, 2.2];
+const LANE_SPEED = 12;            // lateral lerp speed
+const GRAVITY = -38;              // units/s^2
+const JUMP_V = 12.5;
+const ROLL_TIME = 0.62;           // seconds
+const SPAWN_Z = -70;              // where objects appear
+const DESPAWN_Z = 8;             // behind camera
+const BASE_SPEED = 22;
+const MAX_SPEED = 58;
+const ACCEL = 0.35;              // speed gain per second
+const CARROT_Z_SPACING = 14;
+
+// ---------- State ----------
+let scene, camera, renderer, clock;
+let bunny, bunnyGroup, earL, earR, legFL, legFR, legBL, legBR, tail;
+let world = new THREE.Group();
+let obstacles = [];
+let carrots = [];
+let scenery = [];
+let lanes = { idx: 1, x: 0 };
+let player = { y: 0, vy: 0, onGround: true, rolling: false, rollTimer: 0, dead: false };
+let running = false, dead = false;
+let speed, distance, carrotCount;
+let lastSpawnZ = 0;
+let spawnGap = 22;
+let bumpAnim = 0;
+
+// ---------- Setup ----------
+function init(){
+  const w = window.innerWidth, h = window.innerHeight;
+  scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x8ec9e6, 30, 78);
+
+  camera = new THREE.PerspectiveCamera(72, w/h, 0.1, 200);
+  camera.position.set(0, 5.2, 11);
+  camera.lookAt(0, 1.4, -6);
+
+  renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:"high-performance" });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(w, h);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.getElementById('game').appendChild(renderer.domElement);
+
+  // Lights
+  const hemi = new THREE.HemisphereLight(0xbfe3ff, 0x4a5d3a, 0.9);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff3d6, 1.1);
+  sun.position.set(-6, 18, 6);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024,1024);
+  sun.shadow.camera.left = -14; sun.shadow.camera.right = 14;
+  sun.shadow.camera.top = 20; sun.shadow.camera.bottom = -20;
+  sun.shadow.camera.near = 1; sun.shadow.camera.far = 60;
+  scene.add(sun);
+
+  // Sky gradient via big sphere
+  scene.add(makeSky());
+
+  scene.add(world);
+  buildGround();
+  buildBunny();
+  seedScenery();
+
+  clock = new THREE.Clock();
+  resetGame();
+  animate();
+  window.addEventListener('resize', onResize);
+}
+
+function makeSky(){
+  const geo = new THREE.SphereGeometry(120, 16, 16);
+  const colTop = new THREE.Color(0x6fb8e8);
+  const colBot = new THREE.Color(0xdff3ff);
+  const pos = geo.attributes.position;
+  const colors = [];
+  for(let i=0;i<pos.count;i++){
+    const t = THREE.MathUtils.smoothstep(pos.getY(i)/120, -0.1, 1);
+    const c = colBot.clone().lerp(colTop, t);
+    colors.push(c.r, c.g, c.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors,3));
+  const mat = new THREE.MeshBasicMaterial({ vertexColors:true, side:THREE.BackSide, fog:false });
+  return new THREE.Mesh(geo, mat);
+}
+
+// ---------- Ground / track ----------
+let trackMat, grassMat, stripeMat;
+function buildGround(){
+  grassMat = new THREE.MeshLambertMaterial({ color:0x5fae4a });
+  trackMat = new THREE.MeshLambertMaterial({ color:0x8a7a5a });
+  // Repeating grass strip that scrolls
+  const roadLen = 200;
+  const grass = new THREE.Mesh(new THREE.PlaneGeometry(60, roadLen), grassMat);
+  grass.rotation.x = -Math.PI/2;
+  grass.position.set(0, 0, -roadLen/2 + 30);
+  grass.receiveShadow = true;
+  world.add(grass);
+
+  // Track (three lane path)
+  const track = new THREE.Mesh(new THREE.PlaneGeometry(8, roadLen), trackMat);
+  track.rotation.x = -Math.PI/2;
+  track.position.set(0, 0.01, -roadLen/2 + 30);
+  track.receiveShadow = true;
+  world.add(track);
+
+  // Lane lines (scrolling dashed)
+  const lineMat = new THREE.MeshBasicMaterial({ color:0xffffff });
+  for(const lx of [-1.1, 1.1]){
+    for(let z=6; z>-100; z-=6){
+      const line = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 2.6), lineMat);
+      line.rotation.x = -Math.PI/2;
+      line.position.set(lx, 0.02, z - 40);
+      world.add(line);
+      scenery.push({ mesh: line, type:'line' });
+    }
+  }
+}
+
+// ---------- Bunny ----------
+function mat(c, rough){ return new THREE.MeshStandardMaterial({ color:c, roughness: rough??0.85, metalness:0 }); }
+function box(w,h,d,c, rough){ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat(c,rough)); m.castShadow=true; return m; }
+function sphere(r,c,rough){ const m=new THREE.Mesh(new THREE.SphereGeometry(r,16,16), mat(c,rough)); m.castShadow=true; return m; }
+
+function buildBunny(){
+  bunnyGroup = new THREE.Group();
+  const fur = 0xffffff, inner = 0xffc3d1, earPink=0xffa3bf;
+
+  const body = sphere(0.62, fur); body.scale.set(1, 0.95, 1.15); body.position.y = 0.95;
+  bunnyGroup.add(body);
+
+  const head = sphere(0.46, fur); head.position.set(0, 1.7, 0.28);
+  bunnyGroup.add(head);
+
+  // Ears
+  earL = new THREE.Group();
+  const eL = sphere(0.16, fur); eL.scale.set(0.6, 2.2, 0.5); eL.position.y = 0.7;
+  const eLi = sphere(0.09, inner); eLi.scale.set(0.5, 1.8, 0.4); eLi.position.y = 0.7;
+  earL.add(eL, eLi); earL.position.set(-0.2, 2.05, 0.28); earL.rotation.z = 0.18;
+  earR = earL.clone(); earR.position.x = 0.2; earR.rotation.z = -0.18;
+  // need separate refs for animation
+  bunnyGroup.add(earL, earR);
+
+  // Eyes
+  const eyeG = mat(0x2a2a3a, 0.4);
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.09,10,10), eyeG); eyeL.position.set(-0.18, 1.78, 0.62);
+  const eyeR = eyeL.clone(); eyeR.position.x = 0.18;
+  // nose
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.07,8,8), mat(0xff7aa2));
+  nose.scale.set(1.3,0.9,1); nose.position.set(0,1.62,0.72);
+  bunnyGroup.add(eyeL, eyeR, nose);
+
+  // Tail
+  tail = sphere(0.22, fur); tail.position.set(0, 1.0, -0.6);
+  bunnyGroup.add(tail);
+
+  // Legs
+  function leg(x,z,front){
+    const g = new THREE.Group();
+    const t = sphere(0.19, fur); t.scale.set(0.9,1.5,1.1);
+    g.add(t); g.position.set(x,0.55,z);
+    bunnyGroup.add(g); return g;
+  }
+  legFL = leg(-0.32, 0.45, true);
+  legFR = leg( 0.32, 0.45, true);
+  legBL = leg(-0.32, -0.45, false);
+  legBR = leg( 0.32, -0.45, false);
+
+  bunnyGroup.position.set(0,0,3);
+  bunny = bunnyGroup;
+  world.add(bunnyGroup);
+}
+
+// ---------- Obstacles & pickups ----------
+const obstacleGeos = [];
+function makeObstacle(){
+  const kind = Math.floor(Math.random()*4);
+  let m;
+  if(kind===0){ // hay bale
+    m = box(1.7, 1.4, 1.7, 0xd7b24b); m.position.y = 0.7;
+  } else if(kind===1){ // fence
+    const g = new THREE.Group();
+    for(let i=-1;i<=1;i++){ const p=box(0.22,1.5,0.22,0x8a5a2b); p.position.set(i*0.7,0.75,0); g.add(p);}
+    const rail=box(2.2,0.18,0.16,0x8a5a2b); rail.position.y=0.6; g.add(rail);
+    const rail2=box(2.2,0.18,0.16,0x8a5a2b); rail2.position.y=1.15; g.add(rail2);
+    m = g;
+  } else if(kind===2){ // rock (short, must hop)
+    m = sphere(0.85, 0x8b8f94); m.scale.set(1.1,0.8,1.0); m.position.y=0.6;
+  } else { // tall bush (must dodge)
+    const g=new THREE.Group();
+    const b1=sphere(0.95,0x2f7d32); b1.position.y=0.9; g.add(b1);
+    const b2=sphere(0.7,0x3a9a44); b2.position.set(0.5,0.6,0.2); g.add(b2);
+    m=g;
+  }
+  m.traverse(o=>{ if(o.isMesh) o.castShadow = true; });
+  return m;
+}
+
+function makeCarrot(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.ConeGeometry(0.28,0.8,10), mat(0xff7a29,0.6));
+  body.rotation.x = Math.PI; body.position.y = 0.35;
+  const top = new THREE.Mesh(new THREE.ConeGeometry(0.1,0.28,6), mat(0x5fae4a));
+  top.position.y = 0.78; top.rotation.x = 0.3;
+  g.add(body, top);
+  g.traverse(o=>{ if(o.isMesh) o.castShadow = true; });
+  return g;
+}
+
+// ---------- Scenery (trees & clouds) ----------
+function makeTree(){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.35,1.2,8), mat(0x6b4423));
+  trunk.position.y = 0.6; trunk.castShadow = true;
+  const leaf = new THREE.Mesh(new THREE.ConeGeometry(1.1,2.2,9), mat(0x2f8f3a));
+  leaf.position.y = 2.0; leaf.castShadow = true;
+  const leaf2 = new THREE.Mesh(new THREE.ConeGeometry(0.8,1.7,9), mat(0x3aa848));
+  leaf2.position.y = 2.7; leaf2.castShadow = true;
+  g.add(trunk, leaf, leaf2);
+  return g;
+}
+function makeCloud(){
+  const g = new THREE.Group();
+  const cm = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:1, fog:true });
+  const c1 = new THREE.Mesh(new THREE.SphereGeometry(1.4,10,10), cm);
+  const c2 = new THREE.Mesh(new THREE.SphereGeometry(1.0,10,10), cm); c2.position.set(1.4,0.2,0);
+  const c3 = new THREE.Mesh(new THREE.SphereGeometry(1.1,10,10), cm); c3.position.set(-1.3,0.1,0);
+  g.add(c1,c2,c3);
+  return g;
+}
+
+function seedScenery(){
+  for(let i=0;i<10;i++){
+    const side = i%2===0 ? -1 : 1;
+    const t = makeTree();
+    t.position.set(side*(7+Math.random()*6), 0, -Math.random()*120 - 6);
+    t.scale.setScalar(0.8+Math.random()*0.7);
+    world.add(t); scenery.push({ mesh:t, type:'tree' });
+  }
+  for(let i=0;i<6;i++){
+    const c = makeCloud();
+    c.position.set((Math.random()-0.5)*40, 14+Math.random()*6, -Math.random()*130 - 10);
+    world.add(c); scenery.push({ mesh:c, type:'cloud' });
+  }
+}
+
+// ---------- Spawning ----------
+function spawnWave(){
+  // pick lane(s) to place obstacle, leave at least one free
+  const openLanes = [0,1,2];
+  const blockCount = Math.random()<0.4 ? 2 : 1;
+  const shuffled = openLanes.slice().sort(()=>Math.random()-0.5);
+  for(let i=0;i<blockCount;i++){
+    const lane = shuffled[i];
+    const ob = makeObstacle();
+    ob.position.set(LANES[lane], 0, SPAWN_Z);
+    ob.userData = { kind:'obstacle', lane };
+    world.add(ob); obstacles.push(ob);
+  }
+  // carrots in a remaining open lane
+  const free = openLanes.filter(l => !shuffled.slice(0,blockCount).includes(l));
+  if(free.length && Math.random()<0.85){
+    const lane = free[Math.floor(Math.random()*free.length)];
+    const n = 3 + Math.floor(Math.random()*3);
+    for(let k=0;k<n;k++){
+      const c = makeCarrot();
+      c.position.set(LANES[lane], 1.1, SPAWN_Z - k*3.5);
+      c.userData = { kind:'carrot' };
+      world.add(c); carrots.push(c);
+    }
+  }
+}
+
+// ---------- Controls ----------
+function moveLane(dir){
+  if(!running) return;
+  lanes.idx = Math.max(0, Math.min(2, lanes.idx + dir));
+}
+function jump(){
+  if(!running || !player.onGround) return;
+  player.onGround = false; player.vy = JUMP_V;
+  if(player.rolling){ player.rolling=false; player.rollTimer=0; }
+}
+function roll(){
+  if(!running) return;
+  if(!player.onGround){ player.vy = -14; return; } // fast-fall + start roll on land
+  player.rolling = true; player.rollTimer = ROLL_TIME;
+}
+
+let touchStart = null;
+function bindTouch(){
+  const el = renderer.domElement;
+  el.addEventListener('touchstart', e=>{
+    const t = e.touches[0];
+    touchStart = { x:t.clientX, y:t.clientY, t:Date.now() };
+    handleTap(t);
+  }, {passive:false});
+  el.addEventListener('touchmove', e=>{
+    e.preventDefault();
+    if(!touchStart) return;
+    const t = e.touches[0];
+    const dx = t.clientX - touchStart.x;
+    const dy = t.clientY - touchStart.y;
+    if(Math.abs(dx)<30 && Math.abs(dy)<30) return;
+    if(Math.abs(dx) > Math.abs(dy)){ moveLane(dx>0?1:-1); }
+    else { if(dy<0) jump(); else roll(); }
+    touchStart = null;
+  }, {passive:false});
+  el.addEventListener('touchend', ()=>{ touchStart=null; }, {passive:true});
+
+  window.addEventListener('keydown', e=>{
+    if(e.repeat) return;
+    switch(e.code){
+      case 'ArrowLeft': case 'a': case 'A': moveLane(-1); break;
+      case 'ArrowRight': case 'd': case 'D': moveLane(1); break;
+      case 'ArrowUp': case 'w': case 'W': case 'Space': jump(); e.preventDefault(); break;
+      case 'ArrowDown': case 's': case 'S': roll(); break;
+      case 'Enter': if(!running) startGame(); break;
+    }
+  });
+}
+// A quick tap (no swipe) = jump, useful for one-thumb play
+function handleTap(t){
+  if(!running) return;
+  // will resolve on touchend if no movement; simpler: treat small tap as jump on touchend
+  // We use a timer-free approach: since touchmove sets touchStart=null on swipe,
+  // on touchend with a short duration and little movement, jump.
+  tapJump();
+}
+let tapTimer;
+function tapJump(){
+  // jump on touch end if it was a short, stationary tap
+  clearTimeout(tapTimer);
+  if(!touchStart) return; // swiped already
+  const s = touchStart;
+  tapTimer = setTimeout(()=>{
+    if(touchStart === s){ jump(); touchStart=null; }
+  }, 120);
+}
+document.addEventListener('touchend', function(){ /* handled by canvas */ });
+
+// ---------- Game flow ----------
+function resetGame(){
+  obstacles.forEach(o=>world.remove(o)); obstacles = [];
+  carrots.forEach(c=>world.remove(c)); carrots = [];
+  lanes = { idx:1, x:0 };
+  bunnyGroup.position.set(0,0,3);
+  bunnyGroup.rotation.set(0,0,0);
+  player = { y:0, vy:0, onGround:true, rolling:false, rollTimer:0, dead:false };
+  speed = BASE_SPEED; distance = 0; carrotCount = 0;
+  lastSpawnZ = 0; spawnGap = 22;
+  dead = false; bumpAnim = 0;
+  updateHUD();
+}
+function startGame(){
+  resetGame();
+  running = true;
+  document.getElementById('start').classList.add('hidden');
+  document.getElementById('gameover').classList.add('hidden');
+  document.getElementById('score').classList.remove('hidden');
+  document.getElementById('carrots').classList.remove('hidden');
+  document.getElementById('hint').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('hint').classList.add('hidden'), 4000);
+}
+function gameOver(){
+  running = false;
+  const best = Math.max(distance, Number(localStorage.getItem('bunnyBest')||0));
+  localStorage.setItem('bunnyBest', best);
+  const isNew = distance > Number(localStorage.getItem('bunnyBestPrev')||0) && distance>0;
+  localStorage.setItem('bunnyBestPrev', best);
+  document.getElementById('final').textContent = Math.floor(distance);
+  document.getElementById('finalCarrots').textContent = carrotCount;
+  document.getElementById('newbest').classList.toggle('hidden', !(distance>0 && distance>=best));
+  document.getElementById('score').classList.add('hidden');
+  document.getElementById('carrots').classList.add('hidden');
+  document.getElementById('hint').classList.add('hidden');
+  document.getElementById('gameover').classList.remove('hidden');
+}
+function updateHUD(){
+  document.getElementById('dist').textContent = Math.floor(distance);
+  document.getElementById('carrotCount').textContent = carrotCount;
+}
+function refreshBest(){
+  document.getElementById('bestStart').textContent = localStorage.getItem('bunnyBest')||0;
+}
+
+// ---------- Update loop ----------
+function update(dt){
+  // Camera gentle follow
+  const targetX = lanes.x*0.25;
+  camera.position.x += (targetX - camera.position.x)*Math.min(1, dt*4);
+
+  if(running){
+    speed = Math.min(MAX_SPEED, speed + ACCEL*dt);
+    distance += speed*dt;
+  }
+  const move = running ? speed*dt : 0;
+
+  // Player X lerp to lane
+  const targetLaneX = LANES[lanes.idx];
+  const prevX = bunnyGroup.position.x;
+  bunnyGroup.position.x += (targetLaneX - prevX)*Math.min(1, dt*LANE_SPEED);
+  lanes.x = bunnyGroup.position.x;
+
+  // Vertical
+  if(!player.onGround || player.y>0){
+    player.vy += GRAVITY*dt;
+    player.y += player.vy*dt;
+    if(player.y<=0){ player.y=0; player.vy=0; player.onGround=true; if(player.rolling===false && !running) {} }
+  }
+  // Roll timer
+  if(player.rolling){
+    player.rollTimer -= dt;
+    if(player.rollTimer<=0){ player.rolling=false; }
+  }
+
+  // Apply transform + animation
+  applyBunny(dt, prevX);
+
+  // Scroll world objects toward player (they stay, world moves via objects)
+  moveObjects(move, dt);
+
+  // Scenery scroll
+  for(const s of scenery){
+    s.mesh.position.z += move;
+    if(s.mesh.position.z > 20){
+      // reposition far away
+      s.mesh.position.z = -110 - Math.random()*40;
+      if(s.type==='tree') s.mesh.position.x = (Math.random()<0.5?-1:1)*(7+Math.random()*6);
+      if(s.type==='cloud') s.mesh.position.x = (Math.random()-0.5)*40;
+      if(s.type==='line'){ /* lines cycle */ }
+    }
+  }
+
+  // Spawn
+  if(running){
+    lastSpawnZ += move;
+    if(lastSpawnZ >= spawnGap){
+      spawnWave();
+      lastSpawnZ = 0;
+      spawnGap = Math.max(13, 24 - distance*0.03) + Math.random()*6;
+    }
+  }
+}
+
+function applyBunny(dt, prevX){
+  const t = clock.elapsedTime;
+  // Y position + rolling scale
+  let targetY = player.y;
+  bunnyGroup.position.y = targetY;
+
+  if(player.rolling){
+    bunnyGroup.scale.set(0.85, 0.55, 1.1);
+    bunnyGroup.position.y = player.y + 0.2;
+    // spin forward
+    bunnyGroup.rotation.x -= dt*18;
+    if(bunnyGroup.rotation.x < -Math.PI*2) bunnyGroup.rotation.x += Math.PI*2;
+  } else {
+    bunnyGroup.scale.set(1,1,1);
+    bunnyGroup.rotation.x = Math.max(0, Math.min(0.35, Math.abs(player.vy)*0.02));
+  }
+
+  // tilt on lane change
+  const vx = (bunnyGroup.position.x - prevX)/Math.max(dt,0.0001);
+  bunnyGroup.rotation.z = -THREE.MathUtils.clamp(vx*0.04, -0.35, 0.35);
+
+  // leg run cycle
+  const cycle = t*14;
+  const amp = player.onGround ? 0.7 : 0.15;
+  if(legFL){ legFL.rotation.x =  Math.sin(cycle)*amp; }
+  if(legBR){ legBR.rotation.x =  Math.sin(cycle)*amp; }
+  if(legFR){ legFR.rotation.x = -Math.sin(cycle)*amp; }
+  if(legBL){ legBL.rotation.x = -Math.sin(cycle)*amp; }
+
+  // ears flop
+  if(earL){
+    earL.rotation.z = 0.18 + Math.sin(cycle*1.3)*0.08 + (player.onGround?0:0.25);
+    earR.rotation.z = -0.18 - Math.sin(cycle*1.3)*0.08 - (player.onGround?0:0.25);
+  }
+  // tail wag
+  if(tail){ tail.scale.setScalar(1 + Math.sin(t*8)*0.08); }
+
+  // idle bob when not moving
+  if(!running && !dead){
+    bunnyGroup.position.y = player.y + Math.sin(t*2)*0.05;
+  }
+}
+
+function moveObjects(move, dt){
+  // obstacles
+  for(let i=obstacles.length-1;i>=0;i--){
+    const o = obstacles[i];
+    o.position.z += move;
+    if(o.position.z > DESPAWN_Z){ world.remove(o); obstacles.splice(i,1); continue; }
+    if(running) checkCollision(o, 'obstacle');
+  }
+  // carrots
+  for(let i=carrots.length-1;i>=0;i--){
+    const c = carrots[i];
+    c.position.z += move;
+    c.rotation.y += dt*3;
+    if(c.position.z > DESPAWN_Z){ world.remove(c); carrots.splice(i,1); continue; }
+    if(running) checkCollision(c, 'carrot');
+  }
+}
+
+function checkCollision(obj, kind){
+  // approximate AABB around player
+  const px = bunnyGroup.position.x, py = bunnyGroup.position.y + 0.9, pz = bunnyGroup.position.z;
+  const ox = obj.position.x, oz = obj.position.z;
+  const dz = Math.abs(oz - pz);
+  if(dz > 1.6) return;
+  const dx = Math.abs(ox - px);
+  if(kind==='carrot'){
+    if(dx < 1.0 && Math.abs((obj.position.y) - (py-0.3)) < 1.4){
+      collectCarrot(obj);
+      return;
+    }
+    // rolling or grounded reaches ground-level carrots
+    if(dx < 1.0 && obj.position.y < 1.6 && (player.rolling || (player.y<0.4))){
+      collectCarrot(obj);
+    }
+  } else {
+    // obstacle: determine if you clear it
+    const clear = isCleared(obj);
+    if(dx < 1.1 && !clear){
+      hit();
+    }
+  }
+}
+function isCleared(o){
+  // hop clears short obstacles; rolling avoids low obstacles
+  const kindName = o.children && o.children.length>2 ? 'bush' : null;
+  // Estimate obstacle height
+  let h = 0;
+  o.traverse(n=>{ if(n.isMesh){ const b=new THREE.Box3().setFromObject(n); h=Math.max(h,b.max.y);} });
+  // JUMP clears if bunny bottom above obstacle top while over it
+  const bunnyBottom = player.y;
+  if(player.y > h*0.72 && !player.rolling) return true; // jumped over
+  if(player.rolling && h < 1.3) return true; // rolled under short ones
+  return false;
+}
+function collectCarrot(obj){
+  world.remove(obj);
+  const idx = carrots.indexOf(obj); if(idx>=0) carrots.splice(idx,1);
+  carrotCount++; updateHUD();
+  spawnPop(obj.position.clone());
+}
+function hit(){
+  if(dead || !running) return;
+  dead = true;
+  bumpAnim = 0.35;
+  // fling bunny
+  player.vy = 8;
+  player.onGround = false;
+  setTimeout(gameOver, 450);
+}
+
+// Pop particles on collect
+let pops = [];
+function spawnPop(pos){
+  for(let i=0;i<6;i++){
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.08,6,6),
+      new THREE.MeshBasicMaterial({ color:0xffd166 }));
+    m.position.copy(pos);
+    m.userData = { v:new THREE.Vector3((Math.random()-0.5)*6, Math.random()*5, (Math.random()-0.5)*6), life:0.5 };
+    world.add(m); pops.push(m);
+  }
+}
+function updatePops(dt){
+  for(let i=pops.length-1;i>=0;i--){
+    const p = pops[i];
+    p.userData.life -= dt;
+    p.position.addScaledVector(p.userData.v, dt);
+    p.userData.v.y -= 12*dt;
+    p.scale.multiplyScalar(1 - dt*2);
+    if(p.userData.life<=0){ world.remove(p); pops.splice(i,1); }
+  }
+}
+
+// ---------- Loop ----------
+function animate(){
+  requestAnimationFrame(animate);
+  let dt = clock.getDelta();
+  dt = Math.min(dt, 0.05); // clamp
+  update(dt);
+  updatePops(dt);
+  // dead bunny tumbles
+  if(dead){
+    player.vy += GRAVITY*dt;
+    player.y += player.vy*dt;
+    if(player.y<0){ player.y=0; player.vy*=-0.3; }
+    bunnyGroup.rotation.x -= dt*6;
+    bunnyGroup.rotation.z += dt*4;
+    bunnyGroup.position.y = player.y;
+    if(!running){ // gentle camera nudge
+    }
+  }
+  renderer.render(scene, camera);
+}
+
+function onResize(){
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w/h; camera.updateProjectionMatrix();
+  renderer.setSize(w,h);
+}
+
+// ---------- Wire UI ----------
+document.getElementById('play').addEventListener('click', startGame);
+document.getElementById('retry').addEventListener('click', startGame);
+
+// ---------- Boot ----------
+if(typeof THREE === 'undefined'){
+  document.body.innerHTML = '<div style="color:#fff;padding:40px;font-family:sans-serif;text-align:center">Failed to load 3D engine.<br>Please check your internet connection and reload.</div>';
+} else {
+  init();
+  bindTouch();
+  refreshBest();
+}
+})();
+</script>
+</body>
+</html>
